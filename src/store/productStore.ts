@@ -35,6 +35,14 @@ export interface Product {
   featured: boolean;
   isNew: boolean;
   onSale: boolean;
+  visibility: 'visible' | 'hidden';
+  scheduledPublishDate: string | null;
+  availabilityDate: string | null;
+  shippingClass: 'standard' | 'express' | 'free' | 'heavy' | 'fragile' | 'custom';
+  shippingCharge: number;
+  relatedProducts: string[];
+  upsellProducts: string[];
+  crossSellProducts: string[];
   variants: ProductVariant[];
   createdAt: string;
   updatedAt: string;
@@ -57,7 +65,7 @@ const mapApiProduct = (apiProd: ApiProduct): Product => ({
   name: apiProd.name,
   slug: apiProd.slug,
   description: apiProd.description,
-  categoryId: apiProd.categoryId,
+  categoryId: (apiProd.categoryId && typeof apiProd.categoryId === 'object') ? (apiProd.categoryId as any)._id : apiProd.categoryId,
   brand: '',
   regularPrice: apiProd.regularPrice,
   salePrice: apiProd.salePrice,
@@ -74,8 +82,22 @@ const mapApiProduct = (apiProd: ApiProduct): Product => ({
   metaDescription: apiProd.shortDescription,
   status: apiProd.status === 'active' ? 'published' : apiProd.status === 'draft' ? 'draft' : 'out_of_stock',
   featured: apiProd.featured,
-  isNew: false,
-  onSale: !!apiProd.salePrice,
+  isNew: apiProd.isNew || false,
+  onSale: apiProd.onSale || !!apiProd.salePrice,
+  visibility: apiProd.visibility || 'visible',
+  scheduledPublishDate: apiProd.scheduledPublishDate || null,
+  availabilityDate: apiProd.availabilityDate || null,
+  shippingClass: apiProd.shippingClass || 'standard',
+  shippingCharge: apiProd.shippingCharge || 0,
+  relatedProducts: (apiProd.relatedProducts || []).map((id: any) =>
+    typeof id === 'object' ? id._id : id
+  ),
+  upsellProducts: (apiProd.upsellProducts || []).map((id: any) =>
+    typeof id === 'object' ? id._id : id
+  ),
+  crossSellProducts: (apiProd.crossSellProducts || []).map((id: any) =>
+    typeof id === 'object' ? id._id : id
+  ),
   variants: apiProd.variants.map(v => ({
     id: v.id || crypto.randomUUID(),
     name: v.name,
@@ -129,6 +151,9 @@ export const useProductStore = create<ProductState>()((set) => ({
         status: product.status === 'published' ? 'active' : product.status === 'out_of_stock' ? 'out_of_stock' : 'draft',
         featured: product.featured,
         tags: product.tags,
+        availabilityDate: product.availabilityDate || null,
+        shippingClass: product.shippingClass || 'standard',
+        shippingCharge: product.shippingCharge || 0,
       });
       set((state) => ({
         products: [...state.products, mapApiProduct(data)],
@@ -157,6 +182,9 @@ export const useProductStore = create<ProductState>()((set) => ({
       }
       if (updates.featured !== undefined) updateData.featured = updates.featured;
       if (updates.tags) updateData.tags = updates.tags;
+      if (updates.availabilityDate !== undefined) updateData.availabilityDate = updates.availabilityDate;
+      if (updates.shippingClass) updateData.shippingClass = updates.shippingClass;
+      if (updates.shippingCharge !== undefined) updateData.shippingCharge = updates.shippingCharge;
 
       const data = await productApi.update(id, updateData);
       set((state) => ({

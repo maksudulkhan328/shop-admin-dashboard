@@ -1,55 +1,62 @@
-import { useState, useEffect, useMemo } from 'react';
+﻿import { useState, useEffect, useMemo } from 'react';
 import { paymentApi, Payment } from '@/services/paymentService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Search, MoreVertical, Eye, CheckCircle, XCircle, DollarSign, CreditCard, Clock, TrendingUp } from 'lucide-react';
+import {
+  Search, MoreVertical, Eye, CheckCircle, XCircle, CreditCard, Clock,
+  Download, RefreshCw, RotateCcw,
+} from 'lucide-react';
+import TakaIcon from '@/components/TakaIcon';
 
 const statusConfig = {
-  pending: { label: 'Pending', className: 'bg-warning/20 text-warning' },
+  pending:  { label: 'Pending',   className: 'bg-warning/20 text-warning' },
   completed: { label: 'Completed', className: 'bg-success/20 text-success' },
-  failed: { label: 'Failed', className: 'bg-destructive/20 text-destructive' },
-  refunded: { label: 'Refunded', className: 'bg-muted text-muted-foreground' },
+  failed:   { label: 'Failed',    className: 'bg-destructive/20 text-destructive' },
+  refunded: { label: 'Refunded',  className: 'bg-muted text-muted-foreground' },
+  partially_refunded: { label: 'Part. Refunded', className: 'bg-chart-3/20 text-chart-3' },
 };
 
-const methodConfig = {
-  credit_card: { label: 'Credit Card', icon: '💳' },
-  debit_card: { label: 'Debit Card', icon: '💳' },
-  paypal: { label: 'PayPal', icon: '🅿️' },
-  bank_transfer: { label: 'Bank Transfer', icon: '🏦' },
-  cash_on_delivery: { label: 'Cash on Delivery', icon: '💵' },
+const methodConfig: Record<string, { label: string; icon: string }> = {
+  credit_card:       { label: 'Credit Card',       icon: '💳' },
+  debit_card:        { label: 'Debit Card',         icon: '💳' },
+  paypal:            { label: 'PayPal',             icon: '🅿️' },
+  bank_transfer:     { label: 'Bank Transfer',      icon: '🏦' },
+  cash_on_delivery:  { label: 'Cash on Delivery',   icon: '💵' },
+  bkash:             { label: 'bKash',              icon: '📱' },
+  nagad:             { label: 'Nagad',              icon: '📱' },
+  rocket:            { label: 'Rocket',             icon: '📱' },
+  sslcommerz:        { label: 'SSLCommerz',         icon: '🔒' },
+  stripe:            { label: 'Stripe',             icon: '💳' },
 };
+
+const defaultCfg = { label: 'Unknown', className: 'bg-muted text-muted-foreground', icon: '?' };
 
 export default function Payments() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | Payment['status']>('all');
-  const [methodFilter, setMethodFilter] = useState<'all' | Payment['method']>('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [methodFilter, setMethodFilter] = useState('all');
   const [viewPayment, setViewPayment] = useState<Payment | null>(null);
   const [viewOpen, setViewOpen] = useState(false);
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundPayment, setRefundPayment] = useState<Payment | null>(null);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundReason, setRefundReason] = useState('');
+  const [refundType, setRefundType] = useState<'full' | 'partial'>('full');
+  const [exportLoading, setExportLoading] = useState(false);
 
   useEffect(() => {
     fetchPayments();
@@ -81,13 +88,65 @@ export default function Payments() {
   const totalAmount = payments.filter(p => p.status === 'completed').reduce((sum, p) => sum + p.amount, 0);
   const pendingAmount = payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
 
-  const handleUpdateStatus = async (paymentId: string, status: Payment['status']) => {
+  const handleUpdateStatus = async (paymentId: string, status: string) => {
     try {
       await paymentApi.updateStatus(paymentId, status);
       toast.success('Payment status updated');
       fetchPayments();
     } catch (error) {
       toast.error('Failed to update status');
+    }
+  };
+
+  const openRefund = (payment: Payment) => {
+    setRefundPayment(payment);
+    setRefundAmount(String(payment.amount));
+    setRefundReason('');
+    setRefundType('full');
+    setRefundOpen(true);
+  };
+
+  const handleRefund = async () => {
+    if (!refundPayment) return;
+    try {
+      await paymentApi.refund(refundPayment._id, {
+        refundAmount: refundType === 'full' ? refundPayment.amount : Number(refundAmount),
+        refundType,
+        refundReason,
+        refundTo: 'original',
+      });
+      toast.success('Refund processed successfully');
+      setRefundOpen(false);
+      fetchPayments();
+    } catch {
+      toast.error('Failed to process refund');
+    }
+  };
+
+  const handleVerify = async (paymentId: string) => {
+    try {
+      await paymentApi.verify(paymentId, true, 'Verified by admin');
+      toast.success('Payment verified');
+      fetchPayments();
+    } catch {
+      toast.error('Failed to verify payment');
+    }
+  };
+
+  const handleExportCsv = async () => {
+    setExportLoading(true);
+    try {
+      const blob = await paymentApi.exportCsv({ status: statusFilter !== 'all' ? statusFilter : '', method: methodFilter !== 'all' ? methodFilter : '' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `payments-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to export CSV');
+    } finally {
+      setExportLoading(false);
     }
   };
 
@@ -103,9 +162,15 @@ export default function Payments() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Payments</h1>
-        <p className="text-muted-foreground">Track and manage payment transactions</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Payments</h1>
+          <p className="text-muted-foreground">Track and manage payment transactions</p>
+        </div>
+        <Button onClick={handleExportCsv} variant="outline" disabled={exportLoading}>
+          {exportLoading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+          Export CSV
+        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -137,10 +202,10 @@ export default function Payments() {
         <Card className="glass-card border-border">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-chart-4/10 flex items-center justify-center">
-              <DollarSign className="w-6 h-6 text-chart-4" />
+              <TakaIcon className="w-6 h-6 text-chart-4" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">BDT {totalAmount.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-foreground">৳{totalAmount.toLocaleString()}</p>
               <p className="text-sm text-muted-foreground">Total Received</p>
             </div>
           </CardContent>
@@ -152,7 +217,7 @@ export default function Payments() {
               <Clock className="w-6 h-6 text-warning" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">BDT {pendingAmount.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-foreground">৳{pendingAmount.toLocaleString()}</p>
               <p className="text-sm text-muted-foreground">Pending Amount</p>
             </div>
           </CardContent>
@@ -174,7 +239,7 @@ export default function Payments() {
             </div>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) => setStatusFilter(e.target.value)}
               className="px-4 py-2 rounded-lg bg-secondary border border-border text-foreground"
             >
               <option value="all">All Status</option>
@@ -182,18 +247,23 @@ export default function Payments() {
               <option value="completed">Completed</option>
               <option value="failed">Failed</option>
               <option value="refunded">Refunded</option>
+              <option value="partially_refunded">Part. Refunded</option>
             </select>
             <select
               value={methodFilter}
-              onChange={(e) => setMethodFilter(e.target.value as any)}
+              onChange={(e) => setMethodFilter(e.target.value)}
               className="px-4 py-2 rounded-lg bg-secondary border border-border text-foreground"
             >
               <option value="all">All Methods</option>
               <option value="credit_card">Credit Card</option>
               <option value="debit_card">Debit Card</option>
-              <option value="paypal">PayPal</option>
+              <option value="bkash">bKash</option>
+              <option value="nagad">Nagad</option>
+              <option value="rocket">Rocket</option>
               <option value="bank_transfer">Bank Transfer</option>
               <option value="cash_on_delivery">Cash on Delivery</option>
+              <option value="sslcommerz">SSLCommerz</option>
+              <option value="stripe">Stripe</option>
             </select>
           </div>
         </CardContent>
@@ -249,17 +319,17 @@ export default function Payments() {
                         </p>
                       </TableCell>
                       <TableCell>
-                        <span className="font-semibold">BDT {payment.amount.toLocaleString()}</span>
+                        <span className="font-semibold">৳{payment.amount.toLocaleString()}</span>
                       </TableCell>
                       <TableCell>
                         <span className="flex items-center gap-1">
-                          <span>{methodConfig[payment.method].icon}</span>
-                          <span className="text-sm">{methodConfig[payment.method].label}</span>
+                          <span>{(methodConfig[payment.method] || defaultCfg).icon}</span>
+                          <span className="text-sm">{(methodConfig[payment.method] || defaultCfg).label}</span>
                         </span>
                       </TableCell>
                       <TableCell>
-                        <Badge className={`${statusConfig[payment.status].className} border-0`}>
-                          {statusConfig[payment.status].label}
+                        <Badge className={`${(statusConfig[payment.status] || defaultCfg).className} border-0`}>
+                          {(statusConfig[payment.status] || defaultCfg).label}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -285,6 +355,10 @@ export default function Payments() {
                                   <CheckCircle className="w-4 h-4 mr-2" />
                                   Mark Completed
                                 </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleVerify(payment._id)}>
+                                  <CheckCircle className="w-4 h-4 mr-2" />
+                                  Verify Payment
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => handleUpdateStatus(payment._id, 'failed')}>
                                   <XCircle className="w-4 h-4 mr-2" />
                                   Mark Failed
@@ -292,8 +366,8 @@ export default function Payments() {
                               </>
                             )}
                             {payment.status === 'completed' && (
-                              <DropdownMenuItem onClick={() => handleUpdateStatus(payment._id, 'refunded')}>
-                                <XCircle className="w-4 h-4 mr-2" />
+                              <DropdownMenuItem onClick={() => openRefund(payment)}>
+                                <RotateCcw className="w-4 h-4 mr-2" />
                                 Issue Refund
                               </DropdownMenuItem>
                             )}
@@ -339,18 +413,18 @@ export default function Payments() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Amount</p>
-                  <p className="text-2xl font-bold">BDT {viewPayment.amount.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">৳{viewPayment.amount.toLocaleString()}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Payment Method</p>
                   <p className="font-medium">
-                    {methodConfig[viewPayment.method].icon} {methodConfig[viewPayment.method].label}
+                    {(methodConfig[viewPayment.method] || defaultCfg).icon} {(methodConfig[viewPayment.method] || defaultCfg).label}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
-                  <Badge className={`${statusConfig[viewPayment.status].className} border-0`}>
-                    {statusConfig[viewPayment.status].label}
+                  <Badge className={`${(statusConfig[viewPayment.status] || defaultCfg).className} border-0`}>
+                    {(statusConfig[viewPayment.status] || defaultCfg).label}
                   </Badge>
                 </div>
                 <div>
@@ -387,6 +461,44 @@ export default function Payments() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      {/* Refund Dialog */}
+      <Dialog open={refundOpen} onOpenChange={setRefundOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Process Refund</DialogTitle>
+          </DialogHeader>
+          {refundPayment && (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Transaction</p>
+                <p className="font-mono">{refundPayment.transactionId}</p>
+                <p className="text-sm text-muted-foreground mt-1">Original Amount: <span className="font-semibold text-foreground">৳{refundPayment.amount.toLocaleString()}</span></p>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Refund Type</label>
+                <select value={refundType} onChange={e => setRefundType(e.target.value as 'full' | 'partial')} className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-foreground">
+                  <option value="full">Full Refund</option>
+                  <option value="partial">Partial Refund</option>
+                </select>
+              </div>
+              {refundType === 'partial' && (
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Refund Amount (৳)</label>
+                  <Input type="number" value={refundAmount} onChange={e => setRefundAmount(e.target.value)} max={refundPayment.amount} />
+                </div>
+              )}
+              <div>
+                <label className="text-sm font-medium mb-1 block">Reason</label>
+                <Input value={refundReason} onChange={e => setRefundReason(e.target.value)} placeholder="Reason for refund..." />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRefundOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleRefund}>Process Refund</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

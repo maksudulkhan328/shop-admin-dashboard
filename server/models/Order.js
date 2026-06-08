@@ -7,6 +7,7 @@ const orderItemSchema = new mongoose.Schema({
     required: true,
   },
   productName: String,
+  productImage: String,
   variantId: String,
   variantName: String,
   quantity: {
@@ -47,17 +48,22 @@ const orderSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  deliveryCharge: {
+    type: Number,
+    default: 0,
+  },
   discount: {
     type: Number,
     default: 0,
   },
+  couponCode: String,
   total: {
     type: Number,
     required: true,
   },
   status: {
     type: String,
-    enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'],
+    enum: ['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'cancelled', 'refunded'],
     default: 'pending',
   },
   paymentStatus: {
@@ -67,7 +73,7 @@ const orderSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['credit_card', 'debit_card', 'paypal', 'bank_transfer', 'cash_on_delivery'],
+    enum: ['credit_card', 'debit_card', 'paypal', 'bank_transfer', 'cash_on_delivery', 'online_payment', 'card', 'mobile_banking'],
   },
   shippingAddress: {
     name: String,
@@ -78,12 +84,43 @@ const orderSchema = new mongoose.Schema({
     zipCode: String,
     country: String,
   },
+  deliveryAddress: {
+    fullName: String,
+    phone: String,
+    addressLine1: String,
+    addressLine2: String,
+    city: String,
+    area: String,
+    postalCode: String,
+    landmark: String,
+    deliveryInstructions: String,
+  },
+  deliverySlot: {
+    date: Date,
+    timeSlot: String,
+  },
+  estimatedDeliveryDate: Date,
+  deliveredAt: Date,
+  cancelledAt: Date,
+  cancellationReason: String,
+  trackingNumber: { type: String, default: '' },
+  courierName: { type: String, default: '' },
+  adminNote: { type: String, default: '' },
   notes: {
     type: String,
     default: '',
   },
+  statusHistory: [{
+    status: String,
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    note: String,
+  }],
 }, {
   timestamps: true,
+  strict: false,
 });
 
-module.exports = mongoose.model('Order', orderSchema);
+module.exports = mongoose.models.Order || mongoose.model('Order', orderSchema);

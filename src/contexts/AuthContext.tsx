@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { authApi, RegisterData } from '@/services/authService';
 
 interface Admin {
@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       setAdmin(adminData);
       localStorage.setItem('admin', JSON.stringify(adminData));
-      localStorage.setItem('token', response.token);
+      localStorage.setItem('admin_token', response.token);
       return true;
     } catch (error) {
       console.error('Login error:', error);
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       setAdmin(adminData);
       localStorage.setItem('admin', JSON.stringify(adminData));
-      localStorage.setItem('token', response.token);
+      localStorage.setItem('admin_token', response.token);
       return true;
     } catch (error) {
       console.error('Registration error:', error);
@@ -64,11 +64,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setAdmin(null);
     localStorage.removeItem('admin');
-    localStorage.removeItem('token');
-  };
+    localStorage.removeItem('admin_token');
+  }, []);
+
+  // Listen for auth-logout events from axios interceptor (on 401 responses)
+  useEffect(() => {
+    const handleAuthLogout = () => {
+      setAdmin(null);
+    };
+    window.addEventListener('admin-auth-logout', handleAuthLogout);
+    return () => window.removeEventListener('admin-auth-logout', handleAuthLogout);
+  }, []);
+
+  // Verify token is still valid on app mount
+  useEffect(() => {
+    const token = localStorage.getItem('admin_token');
+    if (token && admin) {
+      authApi.getMe().then((data) => {
+        // Token is valid, update admin data
+        const adminData: Admin = {
+          id: data.admin?.id || data.id || admin.id,
+          email: data.admin?.email || data.email || admin.email,
+          name: data.admin?.name || data.name || admin.name,
+          role: (data.admin?.role || data.role || admin.role) as 'super_admin' | 'admin' | 'manager',
+        };
+        setAdmin(adminData);
+        localStorage.setItem('admin', JSON.stringify(adminData));
+      }).catch(() => {
+        // Token is invalid/expired - only then logout
+        // Don't logout on network errors
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <AuthContext.Provider value={{ admin, isAuthenticated: !!admin, login, register, logout }}>

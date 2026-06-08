@@ -11,14 +11,49 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+// Convert any text into an SEO-friendly slug
+const slugify = (text) => {
+  if (!text) return '';
+  return String(text)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .substring(0, 80);
+};
+
+// Build a unique, SEO-friendly filename for an upload
+const buildSeoFilename = (req, file) => {
+  const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+  const baseSlug = slugify(req.body.name) || slugify(path.basename(file.originalname, ext)) || 'image';
+
+  // Prefer plain `slug.ext`; if it exists, append -2, -3, ... until a free name is found
+  let candidate = `${baseSlug}${ext}`;
+  let counter = 2;
+  while (fs.existsSync(path.join(uploadDir, candidate))) {
+    candidate = `${baseSlug}-${counter}${ext}`;
+    counter += 1;
+    if (counter > 9999) {
+      // Safety fallback to avoid infinite loop
+      candidate = `${baseSlug}-${Date.now()}${ext}`;
+      break;
+    }
+  }
+  return candidate;
+};
+
 // Configure multer storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    try {
+      cb(null, buildSeoFilename(req, file));
+    } catch (err) {
+      cb(err);
+    }
   }
 });
 

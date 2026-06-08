@@ -12,6 +12,11 @@ import {
   LogOut,
   ShoppingBag,
   ChevronDown,
+  Truck,
+  BarChart3,
+  Megaphone,
+  Star,
+  Home,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -22,7 +27,12 @@ const menuItems = [
   { icon: Users, label: 'Customers', path: '/customers' },
   { icon: ShoppingCart, label: 'Orders', path: '/orders' },
   { icon: CreditCard, label: 'Payments', path: '/payments' },
+  { icon: Truck, label: 'Shipping', path: '/shipping' },
+  { icon: BarChart3, label: 'Reports', path: '/reports' },
+  { icon: Megaphone, label: 'Marketing', path: '/marketing' },
+  { icon: Star, label: 'Reviews', path: '/reviews' },
   { icon: Settings, label: 'Settings', path: '/settings' },
+  { icon: Home, label: 'Home Page Product', path: '/home-page-product' },
 ];
 
 export default function Sidebar() {

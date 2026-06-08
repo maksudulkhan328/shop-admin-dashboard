@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useProductStore, Product, ProductVariant } from '@/store/productStore';
-import { useCategoryStore } from '@/store/categoryStore';
+import { useCategoryStore, Category } from '@/store/categoryStore';
 import {
   Dialog,
   DialogContent,
@@ -31,15 +31,17 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Plus, Trash2, X, CalendarIcon, Truck, Eye, EyeOff, Clock, Search, Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import ImageUpload from './ImageUpload';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
   slug: z.string().min(1, 'Slug is required').max(200),
   description: z.string().max(2000).optional(),
-  categoryId: z.string().nullable(),
+  categoryId: z.string().min(1, 'Category is required'),
   brand: z.string().max(100).optional(),
   regularPrice: z.number().min(0),
   salePrice: z.number().min(0).nullable(),
@@ -54,6 +56,11 @@ const productSchema = z.object({
   featured: z.boolean(),
   isNew: z.boolean(),
   onSale: z.boolean(),
+  visibility: z.enum(['visible', 'hidden']),
+  scheduledPublishDate: z.string().optional().nullable(),
+  availabilityDate: z.string().optional().nullable(),
+  shippingClass: z.enum(['standard', 'express', 'free', 'heavy', 'fragile', 'custom']),
+  shippingCharge: z.number().min(0),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
@@ -64,6 +71,175 @@ interface Props {
   product: Product | null;
 }
 
+const modules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+    [{ 'font': [] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'color': [] }, { 'background': [] }],
+    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+    [{ 'indent': '-1' }, { 'indent': '+1' }],
+    ['link', 'image', 'video'],
+    ['clean'],
+  ],
+};
+
+const formats = [
+  'header', 'font',
+  'bold', 'italic', 'underline', 'strike',
+  'color', 'background',
+  'list', 'bullet', 'indent',
+  'link', 'image', 'video'
+];
+
+// ─────────────────────────────────────────────────────────────
+// ProductPicker — searchable product selector
+// ─────────────────────────────────────────────────────────────
+const getThumb = (p: Product): string => {
+  const raw = p.images?.[0] ?? '';
+  if (!raw) return '';
+  if (/^(https?:|data:|blob:)/i.test(raw)) return raw;
+  return raw.startsWith('/') ? raw : `/${raw}`;
+};
+
+function ProductPicker({
+  value,
+  onChange,
+  allProducts,
+  excludeId,
+  label,
+  description,
+}: {
+  value: string[];
+  onChange: (ids: string[]) => void;
+  allProducts: Product[];
+  excludeId?: string;
+  label: string;
+  description?: string;
+}) {
+  const [search, setSearch] = useState('');
+  const [dropOpen, setDropOpen] = useState(false);
+
+  const available = allProducts.filter(
+    (p) => p.id !== excludeId && !value.includes(p.id)
+  );
+  const filtered = search
+    ? available.filter(
+        (p) =>
+          p.name.toLowerCase().includes(search.toLowerCase()) ||
+          p.sku.toLowerCase().includes(search.toLowerCase())
+      )
+    : available.slice(0, 8);
+
+  const selected = allProducts.filter((p) => value.includes(p.id));
+
+  const add = (id: string) => {
+    onChange([...value, id]);
+    setSearch('');
+    setDropOpen(false);
+  };
+  const remove = (id: string) => onChange(value.filter((v) => v !== id));
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        {description && (
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+        )}
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setDropOpen(true); }}
+          onFocus={() => setDropOpen(true)}
+          onBlur={() => setTimeout(() => setDropOpen(false), 150)}
+          placeholder="Search by name or SKU…"
+          className="pl-10 bg-secondary border-border"
+        />
+        {dropOpen && filtered.length > 0 && (
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+            {filtered.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onMouseDown={() => add(p.id)}
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted text-left"
+              >
+                {getThumb(p) ? (
+                  <img
+                    src={getThumb(p)}
+                    alt={p.name}
+                    className="w-9 h-9 rounded object-cover shrink-0 bg-muted"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                  />
+                ) : (
+                  <div className="w-9 h-9 rounded bg-muted flex items-center justify-center shrink-0">
+                    <Package className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate text-foreground">{p.name}</p>
+                  <p className="text-xs text-muted-foreground">SKU: {p.sku}</p>
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">৳{p.regularPrice}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {dropOpen && search.length > 0 && filtered.length === 0 && (
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg px-3 py-4 text-center text-sm text-muted-foreground">
+            No products found
+          </div>
+        )}
+      </div>
+
+      {/* Selected list */}
+      {selected.length > 0 ? (
+        <div className="space-y-2">
+          {selected.map((p) => (
+            <div
+              key={p.id}
+              className="flex items-center gap-3 p-2 rounded-lg border border-border bg-muted/30"
+            >
+              {getThumb(p) ? (
+                <img
+                  src={getThumb(p)}
+                  alt={p.name}
+                  className="w-10 h-10 rounded object-cover shrink-0 bg-muted"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                />
+              ) : (
+                <div className="w-10 h-10 rounded bg-muted flex items-center justify-center shrink-0">
+                  <Package className="w-5 h-5 text-muted-foreground" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate text-foreground">{p.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  SKU: {p.sku} &nbsp;·&nbsp; ৳{p.regularPrice}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => remove(p.id)}
+                className="text-muted-foreground hover:text-destructive transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground italic">No products selected yet.</p>
+      )}
+    </div>
+  );
+}
+
 export default function ProductFormDialog({ open, onOpenChange, product }: Props) {
   const { products, addProduct, updateProduct } = useProductStore();
   const { categories } = useCategoryStore();
@@ -72,6 +248,9 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [images, setImages] = useState<string[]>([]);
+  const [relatedProducts, setRelatedProducts] = useState<string[]>([]);
+  const [upsellProducts, setUpsellProducts] = useState<string[]>([]);
+  const [crossSellProducts, setCrossSellProducts] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<ProductFormData>({
@@ -80,7 +259,7 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
       name: '',
       slug: '',
       description: '',
-      categoryId: null,
+      categoryId: '',
       brand: '',
       regularPrice: 0,
       salePrice: null,
@@ -95,6 +274,11 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
       featured: false,
       isNew: false,
       onSale: false,
+      visibility: 'visible' as const,
+      scheduledPublishDate: null,
+      availabilityDate: null,
+      shippingClass: 'standard' as const,
+      shippingCharge: 0,
     },
   });
 
@@ -104,7 +288,7 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
         name: product.name,
         slug: product.slug,
         description: product.description || '',
-        categoryId: product.categoryId,
+        categoryId: product.categoryId || '',
         brand: product.brand || '',
         regularPrice: product.regularPrice,
         salePrice: product.salePrice,
@@ -119,16 +303,24 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
         featured: product.featured,
         isNew: product.isNew,
         onSale: product.onSale,
+        visibility: (product.visibility || 'visible') as 'visible' | 'hidden',
+        scheduledPublishDate: product.scheduledPublishDate ? product.scheduledPublishDate.slice(0, 16) : null,
+        availabilityDate: product.availabilityDate ? product.availabilityDate.split('T')[0] : null,
+        shippingClass: product.shippingClass || 'standard',
+        shippingCharge: product.shippingCharge || 0,
       });
       setVariants(product.variants);
       setTags(product.tags);
       setImages(product.images || []);
+      setRelatedProducts(product.relatedProducts || []);
+      setUpsellProducts(product.upsellProducts || []);
+      setCrossSellProducts(product.crossSellProducts || []);
     } else {
       form.reset({
         name: '',
         slug: '',
         description: '',
-        categoryId: null,
+        categoryId: '',
         brand: '',
         regularPrice: 0,
         salePrice: null,
@@ -143,10 +335,18 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
         featured: false,
         isNew: false,
         onSale: false,
+        visibility: 'visible' as const,
+        scheduledPublishDate: null,
+        availabilityDate: null,
+        shippingClass: 'standard' as const,
+        shippingCharge: 0,
       });
       setVariants([]);
       setTags([]);
       setImages([]);
+      setRelatedProducts([]);
+      setUpsellProducts([]);
+      setCrossSellProducts([]);
     }
   }, [product, form]);
 
@@ -198,6 +398,21 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
     setTags(tags.filter((t) => t !== tag));
   };
 
+  const getCategoryPath = (category: Category): string => {
+    const path: string[] = [category.name];
+    let current = category;
+    while (current.parentId) {
+      const parent = categories.find((c) => c.id === current.parentId);
+      if (parent) {
+        path.unshift(parent.name);
+        current = parent;
+      } else {
+        break;
+      }
+    }
+    return path.join(' > ');
+  };
+
   const onSubmit = async (data: ProductFormData) => {
     setIsSubmitting(true);
     try {
@@ -225,6 +440,14 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
         isNew: data.isNew,
         onSale: data.onSale,
         variants,
+        availabilityDate: data.availabilityDate || null,
+        visibility: data.visibility,
+        scheduledPublishDate: data.scheduledPublishDate || null,
+        shippingClass: data.shippingClass,
+        shippingCharge: data.shippingCharge,
+        relatedProducts,
+        upsellProducts,
+        crossSellProducts,
       };
 
       if (isEditing && product) {
@@ -256,10 +479,12 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <Tabs defaultValue="general" className="w-full">
-              <TabsList className="grid w-full grid-cols-4 bg-muted">
+              <TabsList className="grid w-full grid-cols-6 bg-muted">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="pricing">Pricing & Stock</TabsTrigger>
                 <TabsTrigger value="variants">Variants</TabsTrigger>
+                <TabsTrigger value="publish">Publish</TabsTrigger>
+                <TabsTrigger value="related">Related</TabsTrigger>
                 <TabsTrigger value="seo">SEO</TabsTrigger>
               </TabsList>
 
@@ -304,11 +529,16 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea
-                          {...field}
-                          rows={4}
-                          className="bg-secondary border-border resize-none"
-                        />
+                        <div className="bg-secondary/50 rounded-md border border-border">
+                          <ReactQuill
+                            theme="snow"
+                            value={field.value || ''}
+                            onChange={field.onChange}
+                            modules={modules}
+                            formats={formats}
+                            className="text-foreground min-h-[150px]"
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -324,7 +554,7 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                         <FormLabel>Category</FormLabel>
                         <Select
                           value={field.value || 'none'}
-                          onValueChange={(v) => field.onChange(v === 'none' ? null : v)}
+                          onValueChange={(v) => field.onChange(v === 'none' ? '' : v)}
                         >
                           <FormControl>
                             <SelectTrigger className="bg-secondary border-border">
@@ -333,11 +563,14 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                           </FormControl>
                           <SelectContent>
                             <SelectItem value="none">No Category</SelectItem>
-                            {categories.map((cat) => (
-                              <SelectItem key={cat.id} value={cat.id}>
-                                {cat.name}
-                              </SelectItem>
-                            ))}
+                            {categories
+                              .slice()
+                              .sort((a, b) => getCategoryPath(a).localeCompare(getCategoryPath(b)))
+                              .map((cat) => (
+                                <SelectItem key={cat.id} value={cat.id}>
+                                  {getCategoryPath(cat)}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -388,7 +621,12 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                   />
                 </div>
 
-                <ImageUpload images={images} onChange={setImages} maxImages={5} />
+                <ImageUpload
+                  images={images}
+                  onChange={setImages}
+                  maxImages={5}
+                  productName={form.watch('name')}
+                />
 
                 <div>
                   <FormLabel>Tags</FormLabel>
@@ -419,44 +657,6 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                   )}
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="featured"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center justify-between rounded-lg border border-border p-3">
-                        <FormLabel className="text-sm">Featured</FormLabel>
-                        <FormControl>
-                          <Switch checked={field.value} onCheckedChange={field.onChange} />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="isNew"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center justify-between rounded-lg border border-border p-3">
-                        <FormLabel className="text-sm">New Arrival</FormLabel>
-                        <FormControl>
-                          <Switch checked={field.value} onCheckedChange={field.onChange} />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="onSale"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center justify-between rounded-lg border border-border p-3">
-                        <FormLabel className="text-sm">On Sale</FormLabel>
-                        <FormControl>
-                          <Switch checked={field.value} onCheckedChange={field.onChange} />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                </div>
               </TabsContent>
 
               <TabsContent value="pricing" className="space-y-4 mt-4">
@@ -561,29 +761,63 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                   />
                 </div>
 
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <FormControl>
-                          <SelectTrigger className="bg-secondary border-border">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="draft">Draft</SelectItem>
-                          <SelectItem value="published">Published</SelectItem>
-                          <SelectItem value="out_of_stock">Out of Stock</SelectItem>
-                          <SelectItem value="archived">Archived</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* Shipping Class / Charges - বিশেষ শিপিং রেট থাকলে */}
+                <div className="space-y-3 rounded-lg border border-border p-4">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Truck className="w-4 h-4" />
+                    Shipping Class / Charges
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="shippingClass"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Shipping Class</FormLabel>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger className="bg-secondary border-border">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="standard">Standard Shipping</SelectItem>
+                              <SelectItem value="express">Express Shipping</SelectItem>
+                              <SelectItem value="free">Free Shipping</SelectItem>
+                              <SelectItem value="heavy">Heavy Item</SelectItem>
+                              <SelectItem value="fragile">Fragile Item</SelectItem>
+                              <SelectItem value="custom">Custom Rate</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="shippingCharge"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Shipping Charge</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              {...field}
+                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                              className="bg-secondary border-border"
+                            />
+                          </FormControl>
+                          <p className="text-xs text-muted-foreground">
+                            Set 0 for default shipping rate
+                          </p>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
               </TabsContent>
 
               <TabsContent value="variants" className="space-y-4 mt-4">
@@ -669,6 +903,198 @@ export default function ProductFormDialog({ open, onOpenChange, product }: Props
                     ))}
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="publish" className="space-y-5 mt-4">
+                {/* Status & Visibility */}
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="status"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Status</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger className="bg-secondary border-border">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="draft">Draft</SelectItem>
+                            <SelectItem value="published">Published</SelectItem>
+                            <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+                            <SelectItem value="archived">Archived</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="visibility"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Storefront Visibility</FormLabel>
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => field.onChange('visible')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                              field.value === 'visible'
+                                ? 'bg-success/10 border-success text-success'
+                                : 'border-border text-muted-foreground hover:bg-muted'
+                            }`}
+                          >
+                            <Eye className="w-4 h-4" />
+                            Visible
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => field.onChange('hidden')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                              field.value === 'hidden'
+                                ? 'bg-destructive/10 border-destructive text-destructive'
+                                : 'border-border text-muted-foreground hover:bg-muted'
+                            }`}
+                          >
+                            <EyeOff className="w-4 h-4" />
+                            Hidden
+                          </button>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Scheduling */}
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="scheduledPublishDate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <Clock className="w-4 h-4" />
+                          Scheduled Publish Date
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="datetime-local"
+                            value={field.value || ''}
+                            onChange={(e) => field.onChange(e.target.value || null)}
+                            className="bg-secondary border-border"
+                          />
+                        </FormControl>
+                        <p className="text-xs text-muted-foreground">
+                          Auto-publish on this date (when status is Draft)
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="availabilityDate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <CalendarIcon className="w-4 h-4" />
+                          Availability Date
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            value={field.value || ''}
+                            onChange={(e) => field.onChange(e.target.value || null)}
+                            className="bg-secondary border-border"
+                          />
+                        </FormControl>
+                        <p className="text-xs text-muted-foreground">
+                          When this product becomes available for sale
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Product Labels */}
+                <div className="space-y-3 rounded-lg border border-border p-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Product Labels</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Badges shown on the product card in the storefront.</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="featured"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center justify-between rounded-lg border border-border p-3">
+                          <FormLabel className="text-sm">Featured</FormLabel>
+                          <FormControl>
+                            <Switch checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="isNew"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center justify-between rounded-lg border border-border p-3">
+                          <FormLabel className="text-sm">New Arrival</FormLabel>
+                          <FormControl>
+                            <Switch checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="onSale"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center justify-between rounded-lg border border-border p-3">
+                          <FormLabel className="text-sm">On Sale</FormLabel>
+                          <FormControl>
+                            <Switch checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="related" className="space-y-6 mt-4">
+                <ProductPicker
+                  value={relatedProducts}
+                  onChange={setRelatedProducts}
+                  allProducts={products}
+                  excludeId={product?.id}
+                  label="Related Products"
+                  description={'Products shown in the “You may also like” section on the product page.'}
+                />
+                <div className="border-t border-border" />
+                <ProductPicker
+                  value={upsellProducts}
+                  onChange={setUpsellProducts}
+                  allProducts={products}
+                  excludeId={product?.id}
+                  label="Upsell Products"
+                  description="Higher-value alternatives suggested to the customer before checkout."
+                />
+                <div className="border-t border-border" />
+                <ProductPicker
+                  value={crossSellProducts}
+                  onChange={setCrossSellProducts}
+                  allProducts={products}
+                  excludeId={product?.id}
+                  label={'Cross-sell Products — “Customers also bought”'}
+                  description="Complementary products shown in the cart or checkout page."
+                />
               </TabsContent>
 
               <TabsContent value="seo" className="space-y-4 mt-4">

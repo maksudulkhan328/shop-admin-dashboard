@@ -13,8 +13,8 @@ export interface Payment {
   };
   transactionId: string;
   amount: number;
-  method: 'credit_card' | 'debit_card' | 'paypal' | 'bank_transfer' | 'cash_on_delivery';
-  status: 'pending' | 'completed' | 'failed' | 'refunded';
+  method: 'credit_card' | 'debit_card' | 'paypal' | 'bank_transfer' | 'cash_on_delivery' | 'bkash' | 'nagad' | 'rocket' | 'sslcommerz' | 'stripe';
+  status: 'pending' | 'completed' | 'failed' | 'refunded' | 'partially_refunded';
   gateway: string;
   gatewayResponse: any;
   paymentDetails?: Record<string, any>;
@@ -48,8 +48,27 @@ export const paymentApi = {
     return response.data;
   },
 
-  updateStatus: async (id: string, status: Payment['status']): Promise<Payment> => {
-    const response = await api.patch(`/payments/${id}/status`, { status });
+  updateStatus: async (id: string, status: string, notes?: string): Promise<Payment> => {
+    const response = await api.patch(`/payments/${id}/status`, { status, notes });
     return response.data;
+  },
+
+  refund: async (id: string, data: { refundAmount: number; refundType: string; refundReason: string; refundTo: string }): Promise<Payment> => {
+    const response = await api.post(`/payments/${id}/refund`, data);
+    return response.data;
+  },
+
+  verify: async (id: string, verified: boolean, notes?: string): Promise<Payment> => {
+    const response = await api.patch(`/payments/${id}/verify`, { verified, notes });
+    return response.data;
+  },
+
+  exportCsv: async (params?: Record<string, string>): Promise<Blob> => {
+    const response = await api.get('/payments/export', { params, responseType: 'blob' });
+    return response.data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/payments/${id}`);
   },
 };

@@ -36,25 +36,31 @@ export default function DeleteCategoryDialog({ open, onOpenChange, category }: P
     (c) => c.id !== category.id && !childCategories.some((child) => child.id === c.id)
   );
 
-  const handleConfirm = () => {
-    if (action === 'move' && targetCategoryId) {
-      // Move children to new parent
-      childCategories.forEach((child) => {
-        updateCategory(child.id, { parentId: targetCategoryId === 'root' ? null : targetCategoryId });
-      });
-      deleteCategory(category.id);
-      toast.success('Category deleted, children moved');
-    } else if (action === 'delete') {
-      // Delete all children recursively
-      const deleteRecursive = (catId: string) => {
-        const children = categories.filter((c) => c.parentId === catId);
-        children.forEach((child) => deleteRecursive(child.id));
-        deleteCategory(catId);
-      };
-      deleteRecursive(category.id);
-      toast.success('Category and subcategories deleted');
+  const handleConfirm = async () => {
+    try {
+      if (action === 'move' && targetCategoryId) {
+        // Move children to new parent first, then delete the (now empty) category
+        for (const child of childCategories) {
+          await updateCategory(child.id, {
+            parentId: targetCategoryId === 'root' ? null : targetCategoryId,
+          });
+        }
+        await deleteCategory(category.id);
+        toast.success('Category deleted, children moved');
+      } else if (action === 'delete') {
+        // Backend recursively deletes the whole subtree atomically.
+        // It will reject (400) if ANY descendant still has products,
+        // so no partial deletion can happen.
+        await deleteCategory(category.id);
+        toast.success('Category and subcategories deleted');
+      }
+      onOpenChange(false);
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message ||
+        'Failed to delete category. You must move or delete products first.';
+      toast.error(message);
     }
-    onOpenChange(false);
   };
 
   return (

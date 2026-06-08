@@ -3,6 +3,7 @@ import api from '@/lib/axios';
 export interface OrderItem {
   productId: string;
   productName: string;
+  productImage?: string;
   variantId?: string;
   variantName?: string;
   quantity: number;
@@ -17,16 +18,18 @@ export interface Order {
     _id: string;
     name: string;
     email: string;
+    phone?: string;
   };
   items: OrderItem[];
   subtotal: number;
   tax: number;
   shipping: number;
+  deliveryCharge?: number;
   discount: number;
   total: number;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
+  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'refunded';
   paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
-  paymentMethod: 'credit_card' | 'debit_card' | 'paypal' | 'bank_transfer' | 'cash_on_delivery';
+  paymentMethod: string;
   shippingAddress: {
     name: string;
     phone: string;
@@ -36,7 +39,26 @@ export interface Order {
     zipCode: string;
     country: string;
   };
+  deliveryAddress?: {
+    fullName: string;
+    phone: string;
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    area: string;
+    postalCode: string;
+    landmark?: string;
+    deliveryInstructions?: string;
+  };
   notes: string;
+  trackingNumber?: string;
+  courierName?: string;
+  estimatedDeliveryDate?: string;
+  adminNote?: string;
+  statusHistory?: { status: string; note?: string; date: string }[];
+  deliveredAt?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,6 +90,39 @@ export const orderApi = {
 
   updateStatus: async (id: string, status: string): Promise<Order> => {
     const response = await api.patch(`/orders/${id}/status`, { status });
+    return response.data;
+  },
+
+  updatePaymentStatus: async (id: string, paymentStatus: string): Promise<Order> => {
+    const response = await api.patch(`/orders/${id}/payment-status`, { paymentStatus });
+    return response.data;
+  },
+
+  updateTracking: async (id: string, data: { trackingNumber: string; courierName: string; estimatedDeliveryDate: string }): Promise<Order> => {
+    const response = await api.patch(`/orders/${id}/tracking`, data);
+    return response.data;
+  },
+
+  updateNote: async (id: string, note: string): Promise<Order> => {
+    const response = await api.patch(`/orders/${id}/note`, { note });
+    return response.data;
+  },
+
+  bulkAction: async (ids: string[], action: string, value?: string): Promise<{ updated: number }> => {
+    const response = await api.post('/orders/bulk-action', { ids, action, value });
+    return response.data;
+  },
+
+  exportCsv: async (params?: Record<string, string>): Promise<Blob> => {
+    const response = await api.get('/orders/export', {
+      params,
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  getInvoice: async (id: string): Promise<Order> => {
+    const response = await api.get(`/orders/${id}/invoice`);
     return response.data;
   },
 

@@ -8,11 +8,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Store, User, Lock, Bell, Mail, Globe } from 'lucide-react';
+import { Store, User, Lock, Bell, Mail, Globe, Home, Link2, Copy, Check } from 'lucide-react';
 
 export default function Settings() {
   const { admin } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Store Settings
   const [storeSettings, setStoreSettings] = useState({
@@ -20,10 +21,24 @@ export default function Settings() {
     email: 'contact@sholok.com',
     phone: '',
     address: 'Dhaka, Bangladesh',
-    currency: 'BDT',
+    currency: '৳',
     taxRate: 5,
     shippingCharge: 50,
+    homePageHandle: 'sholok',
   });
+
+  const handleCopyHandle = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        `https://sholok.com/${storeSettings.homePageHandle}`
+      );
+      setCopied(true);
+      toast.success('Home page link copied');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Failed to copy link');
+    }
+  };
 
   // Profile Settings
   const [profileSettings, setProfileSettings] = useState({
@@ -208,7 +223,7 @@ export default function Settings() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="shipping-charge">Shipping Charge (BDT)</Label>
+                  <Label htmlFor="shipping-charge">Shipping Charge (৳)</Label>
                   <Input
                     id="shipping-charge"
                     type="number"

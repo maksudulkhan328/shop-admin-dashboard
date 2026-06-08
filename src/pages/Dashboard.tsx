@@ -1,6 +1,6 @@
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
-  DollarSign, 
   ShoppingCart, 
   Users, 
   Package, 
@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   ArrowDownRight
 } from 'lucide-react';
+import TakaIcon from '@/components/TakaIcon';
 import {
   AreaChart,
   Area,
@@ -23,6 +24,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { orderApi, Order } from '@/services/orderService';
 
 const revenueData = [
   { name: 'Jan', revenue: 4000, orders: 240 },
@@ -44,22 +46,46 @@ const categoryData = [
 
 const COLORS = ['hsl(217, 91%, 60%)', 'hsl(142, 76%, 36%)', 'hsl(38, 92%, 50%)', 'hsl(280, 65%, 60%)', 'hsl(0, 84%, 60%)'];
 
-const recentOrders = [
-  { id: '#ORD-001', customer: 'John Doe', amount: 'BDT 125.00', status: 'Delivered', date: '2 hours ago' },
-  { id: '#ORD-002', customer: 'Jane Smith', amount: 'BDT 89.50', status: 'Processing', date: '3 hours ago' },
-  { id: '#ORD-003', customer: 'Mike Johnson', amount: 'BDT 234.00', status: 'Pending', date: '5 hours ago' },
-  { id: '#ORD-004', customer: 'Sarah Williams', amount: 'BDT 67.00', status: 'Shipped', date: '6 hours ago' },
-  { id: '#ORD-005', customer: 'Tom Brown', amount: 'BDT 156.00', status: 'Delivered', date: '8 hours ago' },
-];
-
 const statusColors: Record<string, string> = {
-  Delivered: 'bg-success/20 text-success',
-  Processing: 'bg-primary/20 text-primary',
-  Pending: 'bg-warning/20 text-warning',
-  Shipped: 'bg-chart-4/20 text-chart-4',
+  delivered: 'bg-success/20 text-success',
+  processing: 'bg-primary/20 text-primary',
+  pending: 'bg-warning/20 text-warning',
+  shipped: 'bg-chart-4/20 text-chart-4',
+  confirmed: 'bg-blue-500/20 text-blue-400',
+  out_for_delivery: 'bg-cyan-500/20 text-cyan-400',
+  cancelled: 'bg-destructive/20 text-destructive',
+  refunded: 'bg-gray-500/20 text-gray-400',
 };
 
+function getTimeAgo(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `${diffHrs} hours ago`;
+  const diffDays = Math.floor(diffHrs / 24);
+  return `${diffDays} days ago`;
+}
+
 export default function Dashboard() {
+  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+
+  useEffect(() => {
+    orderApi.getAll().then((orders) => {
+      // Sort by newest first and take top 5
+      const sorted = [...orders].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setRecentOrders(sorted.slice(0, 5));
+    }).catch((err) => {
+      console.error('Failed to load recent orders:', err);
+    }).finally(() => {
+      setOrdersLoading(false);
+    });
+  }, []);
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -72,10 +98,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Revenue"
-          value="BDT 45,231"
+          value="৳ 45,231"
           change="+20.1%"
           trend="up"
-          icon={DollarSign}
+          icon={TakaIcon}
           gradient="gradient-primary"
         />
         <StatCard
@@ -227,28 +253,39 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <ShoppingCart className="w-5 h-5 text-primary" />
+              {ordersLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-4">Loading orders...</p>
+              ) : recentOrders.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No orders yet</p>
+              ) : (
+                recentOrders.map((order) => {
+                  const customerName = typeof order.customerId === 'object' 
+                    ? order.customerId.name 
+                    : (order.deliveryAddress?.fullName || order.shippingAddress?.name || 'Customer');
+                  return (
+                    <div
+                      key={order._id}
+                      className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <ShoppingCart className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">#{order.orderNumber}</p>
+                          <p className="text-sm text-muted-foreground">{customerName}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-foreground">৳ {order.total?.toFixed(2)}</p>
+                        <span className={`text-xs px-2 py-1 rounded-full ${statusColors[order.status] || 'bg-muted text-muted-foreground'}`}>
+                          {order.status?.charAt(0).toUpperCase() + order.status?.slice(1).replace(/_/g, ' ')}
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-foreground">{order.id}</p>
-                      <p className="text-sm text-muted-foreground">{order.customer}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-foreground">{order.amount}</p>
-                    <span className={`text-xs px-2 py-1 rounded-full ${statusColors[order.status]}`}>
-                      {order.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                  );
+                })
+              )}
             </div>
           </CardContent>
         </Card>

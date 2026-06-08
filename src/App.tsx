@@ -13,7 +13,12 @@ import Products from "@/pages/Products";
 import Customers from "@/pages/Customers";
 import Orders from "@/pages/Orders";
 import Payments from "@/pages/Payments";
+import Shipping from "@/pages/Shipping";
+import Reports from "@/pages/Reports";
+import Marketing from "@/pages/Marketing";
+import Reviews from "@/pages/Reviews";
 import Settings from "@/pages/Settings";
+import HomePageProduct from "@/pages/HomePageProduct";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,7 +29,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter basename="/shopping/admin">
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -35,7 +40,12 @@ const App = () => (
               <Route path="/customers" element={<Customers />} />
               <Route path="/orders" element={<Orders />} />
               <Route path="/payments" element={<Payments />} />
+              <Route path="/shipping" element={<Shipping />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="/marketing" element={<Marketing />} />
+              <Route path="/reviews" element={<Reviews />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/home-page-product" element={<HomePageProduct />} />
             </Route>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<NotFound />} />

@@ -25,7 +25,18 @@ export interface Product {
   variants: ProductVariant[];
   status: 'active' | 'draft' | 'out_of_stock';
   featured: boolean;
+  isNew: boolean;
+  onSale: boolean;
   tags: string[];
+  scheduledPublishDate: string | null;
+  availabilityDate: string | null;
+  shippingClass: 'standard' | 'express' | 'free' | 'heavy' | 'fragile' | 'custom';
+  shippingCharge: number;
+  visibility: 'visible' | 'hidden';
+  relatedProducts: string[];
+  upsellProducts: string[];
+  crossSellProducts: string[];
+  lowStockThreshold: number;
   createdAt: string;
   updatedAt: string;
 }

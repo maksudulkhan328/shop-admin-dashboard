@@ -39,26 +39,39 @@ const mapApiCategory = (apiCat: ApiCategory): Category => ({
   name: apiCat.name,
   slug: apiCat.slug,
   description: apiCat.description,
-  parentId: apiCat.parentId,
+  parentId: (apiCat.parentId && typeof apiCat.parentId === 'object') ? (apiCat.parentId as any)._id : apiCat.parentId,
   image: apiCat.image || null,
-  banner: null,
-  icon: null,
-  metaTitle: apiCat.name,
-  metaDescription: apiCat.description,
+  banner: apiCat.banner || null,
+  icon: apiCat.icon || null,
+  metaTitle: apiCat.metaTitle || '',
+  metaDescription: apiCat.metaDescription || '',
   status: apiCat.isActive ? 'active' : 'inactive',
   featured: apiCat.featured || false,
   position: apiCat.order,
-  showOnMenu: true,
-  showOnHomepage: true,
-  showInSearch: true,
+  showOnMenu: apiCat.showOnMenu ?? true,
+  showOnHomepage: apiCat.showOnHomepage ?? true,
+  showInSearch: apiCat.showInSearch ?? true,
   createdAt: apiCat.createdAt,
   updatedAt: apiCat.updatedAt,
 });
 
+// Notify any storefront tabs (same origin) to invalidate their category cache.
+// Storefront listens for `storage` events on this key and refetches.
+const STOREFRONT_INVALIDATE_KEY = 'sholok_categories_invalidate';
+const STOREFRONT_CACHE_KEY = 'sholok_categories_cache';
+const notifyStorefront = () => {
+  try {
+    localStorage.removeItem(STOREFRONT_CACHE_KEY);
+    localStorage.setItem(STOREFRONT_INVALIDATE_KEY, String(Date.now()));
+  } catch {
+    /* ignore */
+  }
+};
+
 export const useCategoryStore = create<CategoryState>()((set) => ({
   categories: [],
   loading: false,
-  
+
   fetchCategories: async () => {
     set({ loading: true });
     try {
@@ -70,7 +83,7 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
       set({ loading: false });
     }
   },
-  
+
   addCategory: async (category) => {
     try {
       const data = await categoryApi.create({
@@ -78,20 +91,28 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
         slug: category.slug,
         description: category.description,
         image: category.image || '',
-        parentId: category.parentId,
+        banner: category.banner || '',
+        parentId: category.parentId || null,
         isActive: category.status === 'active',
         featured: category.featured || false,
         order: category.position,
+        icon: category.icon || '',
+        metaTitle: category.metaTitle || '',
+        metaDescription: category.metaDescription || '',
+        showOnMenu: category.showOnMenu,
+        showOnHomepage: category.showOnHomepage,
+        showInSearch: category.showInSearch,
       });
       set((state) => ({
         categories: [...state.categories, mapApiCategory(data)],
       }));
+      notifyStorefront();
     } catch (error) {
       console.error('Error adding category:', error);
       throw error;
     }
   },
-  
+
   updateCategory: async (id, updates) => {
     try {
       const data = await categoryApi.update(id, {
@@ -99,46 +120,56 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
         slug: updates.slug,
         description: updates.description,
         image: updates.image || '',
+        banner: updates.banner || '',
         parentId: updates.parentId,
         isActive: updates.status === 'active',
         featured: updates.featured !== undefined ? updates.featured : false,
         order: updates.position,
+        icon: updates.icon || '',
+        metaTitle: updates.metaTitle || '',
+        metaDescription: updates.metaDescription || '',
+        showOnMenu: updates.showOnMenu,
+        showOnHomepage: updates.showOnHomepage,
+        showInSearch: updates.showInSearch,
       });
       set((state) => ({
         categories: state.categories.map((cat) =>
           cat.id === id ? mapApiCategory(data) : cat
         ),
       }));
+      notifyStorefront();
     } catch (error) {
       console.error('Error updating category:', error);
       throw error;
     }
   },
-  
+
   deleteCategory: async (id) => {
     try {
       await categoryApi.delete(id);
-      set((state) => ({
-        categories: state.categories.filter((cat) => cat.id !== id),
-      }));
+      // Backend may have recursively deleted descendants too — refetch to stay in sync.
+      const data = await categoryApi.getAll();
+      set({ categories: data.map(mapApiCategory) });
+      notifyStorefront();
     } catch (error) {
       console.error('Error deleting category:', error);
       throw error;
     }
   },
-  
+
   bulkDelete: async (ids) => {
     try {
       await categoryApi.bulkDelete(ids);
-      set((state) => ({
-        categories: state.categories.filter((cat) => !ids.includes(cat.id)),
-      }));
+      // Backend recursively deletes; refetch to capture descendant removals.
+      const data = await categoryApi.getAll();
+      set({ categories: data.map(mapApiCategory) });
+      notifyStorefront();
     } catch (error) {
       console.error('Error bulk deleting categories:', error);
       throw error;
     }
   },
-  
+
   bulkUpdateStatus: async (ids, status) => {
     try {
       await categoryApi.bulkUpdate(ids, status === 'active');
@@ -147,12 +178,13 @@ export const useCategoryStore = create<CategoryState>()((set) => ({
           ids.includes(cat.id) ? { ...cat, status } : cat
         ),
       }));
+      notifyStorefront();
     } catch (error) {
       console.error('Error bulk updating categories:', error);
       throw error;
     }
   },
-  
+
   reorderCategories: (reorderedCategories) =>
     set({ categories: reorderedCategories }),
 }));

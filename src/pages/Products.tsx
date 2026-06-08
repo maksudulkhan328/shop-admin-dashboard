@@ -33,10 +33,15 @@ import {
   Eye,
   EyeOff,
   Archive,
+  SlidersHorizontal,
+  X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ProductFormDialog from '@/components/products/ProductFormDialog';
 import StockUpdateDialog from '@/components/products/StockUpdateDialog';
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog';
 
 const statusConfig: Record<Product['status'], { label: string; className: string }> = {
   published: { label: 'Published', className: 'bg-success/20 text-success' },
@@ -51,11 +56,19 @@ export default function Products() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | Product['status']>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
+  const [priceMin, setPriceMin] = useState<string>('');
+  const [priceMax, setPriceMax] = useState<string>('');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
   const [stockProduct, setStockProduct] = useState<Product | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
   useEffect(() => {
     fetchProducts();
@@ -63,15 +76,47 @@ export default function Products() {
   }, [fetchProducts, fetchCategories]);
 
   const filteredProducts = useMemo(() => {
+    const minPrice = priceMin !== '' ? parseFloat(priceMin) : null;
+    const maxPrice = priceMax !== '' ? parseFloat(priceMax) : null;
+    const fromDate = dateFrom ? new Date(dateFrom) : null;
+    const toDate = dateTo ? new Date(dateTo + 'T23:59:59') : null;
+
     return products.filter((p) => {
+      // Search: name or SKU
+      const q = search.toLowerCase();
       const matchesSearch =
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.sku.toLowerCase().includes(search.toLowerCase());
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q);
+
+      // Status / Visibility
       const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
+
+      // Category
       const matchesCategory = categoryFilter === 'all' || p.categoryId === categoryFilter;
-      return matchesSearch && matchesStatus && matchesCategory;
+
+      // Stock status
+      const matchesStock =
+        stockFilter === 'all' ||
+        (stockFilter === 'in_stock' && p.stock > p.lowStockThreshold) ||
+        (stockFilter === 'low_stock' && p.stock > 0 && p.stock <= p.lowStockThreshold) ||
+        (stockFilter === 'out_of_stock' && p.stock === 0);
+
+      // Price range (use effective price: salePrice if set, else regularPrice)
+      const effectivePrice = p.salePrice ?? p.regularPrice;
+      const matchesPrice =
+        (minPrice === null || effectivePrice >= minPrice) &&
+        (maxPrice === null || effectivePrice <= maxPrice);
+
+      // Date range
+      const createdAt = p.createdAt ? new Date(p.createdAt) : null;
+      const matchesDate =
+        (!fromDate || (createdAt && createdAt >= fromDate)) &&
+        (!toDate || (createdAt && createdAt <= toDate));
+
+      return matchesSearch && matchesStatus && matchesCategory && matchesStock && matchesPrice && matchesDate;
     });
-  }, [products, search, statusFilter, categoryFilter]);
+  }, [products, search, statusFilter, categoryFilter, stockFilter, priceMin, priceMax, dateFrom, dateTo]);
 
   const getCategoryName = (categoryId: string | null) => {
     if (!categoryId) return 'Uncategorized';
@@ -98,8 +143,16 @@ export default function Products() {
   };
 
   const handleDelete = (product: Product) => {
-    deleteProduct(product.id);
-    toast.success('Product deleted');
+    setProductToDelete(product);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (productToDelete) {
+      deleteProduct(productToDelete.id);
+      toast.success('Product deleted');
+      setProductToDelete(null);
+    }
   };
 
   const handleBulkDelete = () => {
@@ -117,6 +170,27 @@ export default function Products() {
   const handleStockClick = (product: Product) => {
     setStockProduct(product);
     setStockDialogOpen(true);
+  };
+
+  const activeFilterCount = [
+    statusFilter !== 'all',
+    categoryFilter !== 'all',
+    stockFilter !== 'all',
+    priceMin !== '',
+    priceMax !== '',
+    dateFrom !== '',
+    dateTo !== '',
+  ].filter(Boolean).length;
+
+  const clearAllFilters = () => {
+    setSearch('');
+    setStatusFilter('all');
+    setCategoryFilter('all');
+    setStockFilter('all');
+    setPriceMin('');
+    setPriceMax('');
+    setDateFrom('');
+    setDateTo('');
   };
 
   return (
@@ -182,7 +256,7 @@ export default function Products() {
               <Star className="w-6 h-6 text-chart-4" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">BDT {totalValue.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-foreground">৳{totalValue.toLocaleString()}</p>
               <p className="text-sm text-muted-foreground">Inventory Value</p>
             </div>
           </CardContent>
@@ -205,8 +279,9 @@ export default function Products() {
 
       {/* Filters & Actions */}
       <Card className="glass-card border-border">
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
+        <CardContent className="p-4 space-y-3">
+          {/* Row 1: Search + toggle + bulk actions */}
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -216,66 +291,178 @@ export default function Products() {
                 className="pl-10 bg-secondary border-border"
               />
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="border-border">
-                  <Filter className="w-4 h-4 mr-2" />
-                  {statusFilter === 'all' ? 'All Status' : statusConfig[statusFilter].label}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => setStatusFilter('all')}>All Status</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('published')}>Published</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('draft')}>Draft</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('out_of_stock')}>Out of Stock</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('archived')}>Archived</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="border-border">
-                  <Package className="w-4 h-4 mr-2" />
-                  {categoryFilter === 'all' ? 'All Categories' : getCategoryName(categoryFilter)}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => setCategoryFilter('all')}>All Categories</DropdownMenuItem>
-                {categories.map((cat) => (
-                  <DropdownMenuItem key={cat.id} onClick={() => setCategoryFilter(cat.id)}>
-                    {cat.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              variant="outline"
+              className={`border-border gap-2 ${activeFilterCount > 0 ? 'border-primary text-primary' : ''}`}
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="bg-primary text-primary-foreground text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+              {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </Button>
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-muted-foreground gap-1">
+                <X className="w-3.5 h-3.5" />
+                Clear all
+              </Button>
+            )}
             {selectedIds.length > 0 && (
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleBulkStatus('published')}
-                  className="border-success text-success hover:bg-success/10"
-                >
+                <Button variant="outline" size="sm" onClick={() => handleBulkStatus('published')}
+                  className="border-success text-success hover:bg-success/10">
                   Publish
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleBulkStatus('archived')}
-                  className="border-warning text-warning hover:bg-warning/10"
-                >
+                <Button variant="outline" size="sm" onClick={() => handleBulkStatus('archived')}
+                  className="border-warning text-warning hover:bg-warning/10">
                   Archive
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBulkDelete}
-                  className="border-destructive text-destructive hover:bg-destructive/10"
-                >
+                <Button variant="outline" size="sm" onClick={handleBulkDelete}
+                  className="border-destructive text-destructive hover:bg-destructive/10">
                   Delete ({selectedIds.length})
                 </Button>
               </div>
             )}
           </div>
+
+          {/* Row 2: Advanced filter panel */}
+          {showAdvanced && (
+            <div className="border border-border rounded-lg p-4 space-y-4 bg-secondary/30">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Status / Visibility */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Status / Visibility</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                    className="w-full h-9 rounded-md border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="published">Published</option>
+                    <option value="draft">Draft</option>
+                    <option value="out_of_stock">Out of Stock</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </div>
+
+                {/* Category */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Category</label>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="w-full h-9 rounded-md border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="all">All Categories</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Stock Status */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Stock Status</label>
+                  <select
+                    value={stockFilter}
+                    onChange={(e) => setStockFilter(e.target.value as typeof stockFilter)}
+                    className="w-full h-9 rounded-md border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="all">All Stock</option>
+                    <option value="in_stock">In Stock</option>
+                    <option value="low_stock">Low Stock</option>
+                    <option value="out_of_stock">Out of Stock</option>
+                  </select>
+                </div>
+
+                {/* Price Range */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Price Range (৳)</label>
+                  <div className="flex gap-1.5 items-center">
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Min"
+                      value={priceMin}
+                      onChange={(e) => setPriceMin(e.target.value)}
+                      className="bg-secondary border-border h-9 text-sm"
+                    />
+                    <span className="text-muted-foreground text-xs shrink-0">–</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Max"
+                      value={priceMax}
+                      onChange={(e) => setPriceMax(e.target.value)}
+                      className="bg-secondary border-border h-9 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Date Range */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Date Added — From</label>
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="bg-secondary border-border h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Date Added — To</label>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="bg-secondary border-border h-9 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Active filter chips */}
+              {activeFilterCount > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {statusFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                      Status: {statusConfig[statusFilter].label}
+                      <button onClick={() => setStatusFilter('all')}><X className="w-3 h-3" /></button>
+                    </span>
+                  )}
+                  {categoryFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                      Category: {getCategoryName(categoryFilter)}
+                      <button onClick={() => setCategoryFilter('all')}><X className="w-3 h-3" /></button>
+                    </span>
+                  )}
+                  {stockFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                      Stock: {stockFilter.replace('_', ' ')}
+                      <button onClick={() => setStockFilter('all')}><X className="w-3 h-3" /></button>
+                    </span>
+                  )}
+                  {(priceMin !== '' || priceMax !== '') && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                      Price: {priceMin || '0'} – {priceMax || '∞'} ৳
+                      <button onClick={() => { setPriceMin(''); setPriceMax(''); }}><X className="w-3 h-3" /></button>
+                    </span>
+                  )}
+                  {(dateFrom !== '' || dateTo !== '') && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                      Date: {dateFrom || '…'} → {dateTo || '…'}
+                      <button onClick={() => { setDateFrom(''); setDateTo(''); }}><X className="w-3 h-3" /></button>
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -334,13 +521,13 @@ export default function Products() {
                     <div>
                       {product.salePrice ? (
                         <>
-                          <span className="font-semibold text-success">BDT {product.salePrice}</span>
+                          <span className="font-semibold text-success">৳{product.salePrice}</span>
                           <span className="text-sm text-muted-foreground line-through ml-2">
-                            BDT {product.regularPrice}
+                            ৳{product.regularPrice}
                           </span>
                         </>
                       ) : (
-                        <span className="font-semibold text-foreground">BDT {product.regularPrice}</span>
+                        <span className="font-semibold text-foreground">৳{product.regularPrice}</span>
                       )}
                     </div>
                     {product.variants.length > 0 && (
@@ -350,11 +537,10 @@ export default function Products() {
                   <TableCell>
                     <button
                       onClick={() => handleStockClick(product)}
-                      className={`font-medium ${
-                        product.stock <= product.lowStockThreshold
-                          ? 'text-destructive'
-                          : 'text-foreground'
-                      } hover:underline`}
+                      className={`font-medium ${product.stock <= product.lowStockThreshold
+                        ? 'text-destructive'
+                        : 'text-foreground'
+                        } hover:underline`}
                     >
                       {product.stock}
                     </button>
@@ -417,6 +603,11 @@ export default function Products() {
         open={stockDialogOpen}
         onOpenChange={setStockDialogOpen}
         product={stockProduct}
+      />
+      <DeleteConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirm={confirmDelete}
       />
     </div>
   );
